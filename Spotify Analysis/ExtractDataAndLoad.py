@@ -1,7 +1,7 @@
 from decimal import Context
 
 import boto3
-import numpy as np
+from statistics import mean
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
@@ -67,12 +67,12 @@ def clean_data(track):
 
 def get_change_in_feature(element, past_element, feature):
     if past_element[f"{feature}_confidence"] > 0.5 and element[f"{feature}_confidence"] > 0.5:  # enough confidence
-        if np.abs(past_element[feature] - element[feature]) / element[feature] > 0.05:  # 5% change
+        if abs(past_element[feature] - element[feature]) / element[feature] > 0.05:  # 5% change
             return True
     return False
 
 
-def get_audio_features(track):
+def get_audio_features(tracks):
     ssm = boto3.client("ssm", region_name="eu-west-1")
     client_secret = ssm.get_parameter(Name="SPOTIFY_CLIENT_SECRET", WithDecryption=True)
     client_secret = client_secret["Parameter"]["Value"]
@@ -83,13 +83,24 @@ def get_audio_features(track):
         auth_manager=SpotifyOAuth(scope=user_lib_scope, client_id=client_id, client_secret=client_secret,
                                   redirect_uri=_redirect_uri))
 
-    track_id = track["track_id"]
-    features = sp.audio_features(track_id)
-    features = {k: v for k, v in features[0].items() if k in valid_audio_features}
+    # track_id = track["track_id"]
+    chunks = [tracks[i:i + 100] for i in range(0, len(tracks), 100)]
+    for chunk in chunks:
+        ids = [e["track_id"] for e in chunk]
+        features = sp.audio_features(ids)
 
-    track_info = {**track, **features}
+    return
+    # while True:
+    # try:
+    #     features = sp.audio_features(track_id)
+    # except spotipy.client.SpotifyException as e:
+    #     print(repr(e))
+    #     raise e
+    # features = {k: v for k, v in features[0].items() if k in valid_audio_features}
 
-    return track_info
+    # track_info = {**track, **features}
+
+    # return track_info
 
 
 def get_advanced_audio_features(track):
@@ -110,7 +121,7 @@ def get_advanced_audio_features(track):
     track_info = {**track, "raw_sections": sections}
 
     num_sections = len(sections)
-    sections_avg_duration = np.mean([e["duration"] for e in sections])
+    sections_avg_duration = mean([e["duration"] for e in sections])
 
     tempo_changes = 0
     key_changes = 0
@@ -172,14 +183,15 @@ results = []
 
 for track in all_tracks:
     clean_track = clean_data(track)
-    clean_track = get_audio_features(clean_track)
-    clean_track = get_advanced_audio_features(clean_track)
+    # clean_track = get_advanced_audio_features(clean_track)
 
     results.append(clean_track)
 
+results = get_audio_features(results)
+
 parse_numeric_data(results)
 
-load_to_dynamo(results)
+# load_to_dynamo(results)
 
 end_time = time.time()
 

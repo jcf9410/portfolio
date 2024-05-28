@@ -1,32 +1,18 @@
-from decimal import Context
-
-import boto3
-from statistics import mean
-import spotipy
-from spotipy.oauth2 import SpotifyOAuth
-
 import time
+from statistics import mean
+
+from common import get_spotipy_client, load_to_dynamo, parse_numeric_data, user_lib_scope
 
 start_time = time.time()
 
-
 valid_audio_features = ["danceability", "energy", "key", "loudness", "mode", "speechiness", "acousticness",
                         "instrumentalness", "liveness", "valence", "tempo"]
-user_lib_scope = "user-library-read"
-_redirect_uri = "http://localhost:8889/callback"
 
 _limit = 30
 
-def get_saved_tracks():
-    ssm = boto3.client("ssm", region_name="eu-west-1")
-    client_secret = ssm.get_parameter(Name="SPOTIFY_CLIENT_SECRET", WithDecryption=True)
-    client_secret = client_secret["Parameter"]["Value"]
-    client_id = ssm.get_parameter(Name="SPOTIFY_CLIENT_ID", WithDecryption=True)
-    client_id = client_id["Parameter"]["Value"]
 
-    sp = spotipy.Spotify(
-        auth_manager=SpotifyOAuth(scope=user_lib_scope, client_id=client_id, client_secret=client_secret,
-                                  redirect_uri=_redirect_uri))
+def get_saved_tracks():
+    sp = get_spotipy_client(user_lib_scope)
 
     all_results = []
 
@@ -73,47 +59,25 @@ def get_change_in_feature(element, past_element, feature):
 
 
 def get_audio_features(tracks):
-    ssm = boto3.client("ssm", region_name="eu-west-1")
-    client_secret = ssm.get_parameter(Name="SPOTIFY_CLIENT_SECRET", WithDecryption=True)
-    client_secret = client_secret["Parameter"]["Value"]
-    client_id = ssm.get_parameter(Name="SPOTIFY_CLIENT_ID", WithDecryption=True)
-    client_id = client_id["Parameter"]["Value"]
-
-    sp = spotipy.Spotify(
-        auth_manager=SpotifyOAuth(scope=user_lib_scope, client_id=client_id, client_secret=client_secret,
-                                  redirect_uri=_redirect_uri))
-
-    # track_id = track["track_id"]
+    sp = get_spotipy_client(user_lib_scope)
     chunks = [tracks[i:i + 100] for i in range(0, len(tracks), 100)]
+    features_results = []
+
     for chunk in chunks:
         ids = [e["track_id"] for e in chunk]
         features = sp.audio_features(ids)
+        features_results.extend(features)
 
-    return
-    # while True:
-    # try:
-    #     features = sp.audio_features(track_id)
-    # except spotipy.client.SpotifyException as e:
-    #     print(repr(e))
-    #     raise e
-    # features = {k: v for k, v in features[0].items() if k in valid_audio_features}
+    for track, feature in zip(tracks, features_results):
+        feature = {k: v for k, v in feature.items() if k in valid_audio_features}
+        feature = {**track, **feature}
+        features_results.append(feature)
 
-    # track_info = {**track, **features}
-
-    # return track_info
+    return features_results
 
 
 def get_advanced_audio_features(track):
-    ssm = boto3.client("ssm", region_name="eu-west-1")
-    client_secret = ssm.get_parameter(Name="SPOTIFY_CLIENT_SECRET", WithDecryption=True)
-    client_secret = client_secret["Parameter"]["Value"]
-    client_id = ssm.get_parameter(Name="SPOTIFY_CLIENT_ID", WithDecryption=True)
-    client_id = client_id["Parameter"]["Value"]
-
-    sp = spotipy.Spotify(
-        auth_manager=SpotifyOAuth(scope=user_lib_scope, client_id=client_id, client_secret=client_secret,
-                                  redirect_uri=_redirect_uri))
-
+    sp = get_spotipy_client(user_lib_scope)
     track_id = track["track_id"]
     features = sp.audio_analysis(track_id)
     sections = features["sections"]
@@ -138,7 +102,7 @@ def get_advanced_audio_features(track):
             mode_changes += 1
         if get_change_in_feature(sections[i], sections[i - 1], "time_signature"):
             time_signature_changes += 1
-        if np.abs(sections[i - 1]["loudness"] - sections[i]["loudness"]) / sections[i][
+        if abs(sections[i - 1]["loudness"] - sections[i]["loudness"]) / sections[i][
             "loudness"] > 0.1:  # no confidence, wider interval
             dynamics_changes += 1
 
@@ -153,37 +117,13 @@ def get_advanced_audio_features(track):
     return track_info
 
 
-def parse_numeric_data(data):
-    ctx = Context(prec=38)
-
-    for entry in data:
-        for k, v in entry.items():
-            if type(v) in (float, int, np.number, np.float64, np.int64):
-                entry[k] = ctx.create_decimal_from_float(v)
-            elif isinstance(v, list):
-                for e in v:
-                    for k2, v2 in e.items():
-                        e[k2] = ctx.create_decimal_from_float(v2)
-
-
-def load_to_dynamo(data):
-    session = boto3.Session(profile_name="default")
-
-    dynamodb = session.resource("dynamodb", region_name="eu-west-1")
-    table = dynamodb.Table("track_info")
-
-    with table.batch_writer() as batch:
-        for item in data:
-            batch.put_item(Item=item)
-
-
 all_tracks = get_saved_tracks()
 
 results = []
 
 for track in all_tracks:
     clean_track = clean_data(track)
-    # clean_track = get_advanced_audio_features(clean_track)
+    clean_track = get_advanced_audio_features(clean_track)
 
     results.append(clean_track)
 
@@ -191,7 +131,7 @@ results = get_audio_features(results)
 
 parse_numeric_data(results)
 
-# load_to_dynamo(results)
+load_to_dynamo(results, "track_info")
 
 end_time = time.time()
 

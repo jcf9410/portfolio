@@ -1,4 +1,5 @@
 from decimal import Context
+import platform
 
 import boto3
 import spotipy
@@ -15,6 +16,12 @@ scope_mapping = {
 }
 redirect_uri = "http://localhost:8889/callback"
 
+if platform.system() == "Windows":
+    cache_path = None
+    profile = "default"
+else:
+    cache_path = "/tmp/.cache"
+    profile = None
 
 def parse_numeric_data(data):
     ctx = Context(prec=38)
@@ -25,8 +32,9 @@ def parse_numeric_data(data):
                 entry[k] = ctx.create_decimal_from_float(v)
             elif isinstance(v, list):
                 for e in v:
-                    for k2, v2 in e.items():
-                        e[k2] = ctx.create_decimal_from_float(v2)
+                    if isinstance(e, dict):
+                        for k2, v2 in e.items():
+                            e[k2] = ctx.create_decimal_from_float(v2)
 
 
 def get_spotipy_client(scope):
@@ -38,7 +46,7 @@ def get_spotipy_client(scope):
     refresh_token = ssm.get_parameter(Name=scope_mapping[scope], WithDecryption=True)
     refresh_token = refresh_token["Parameter"]["Value"]
 
-    sp_oauth = SpotifyOAuth(client_id, client_secret, redirect_uri, scope=scope)
+    sp_oauth = SpotifyOAuth(client_id, client_secret, redirect_uri, scope=scope, cache_path=cache_path)
     token_info = sp_oauth.refresh_access_token(refresh_token)
     sp = spotipy.Spotify(auth=token_info["access_token"])
 
@@ -46,7 +54,7 @@ def get_spotipy_client(scope):
 
 
 def load_to_dynamo(data, table_name, empty_table=None):
-    session = boto3.Session(profile_name="default")
+    session = boto3.Session(profile_name=profile)
 
     dynamodb = session.resource("dynamodb", region_name="eu-west-1")
     table = dynamodb.Table(table_name)
@@ -59,20 +67,20 @@ def load_to_dynamo(data, table_name, empty_table=None):
             batch.put_item(Item=item)
 
 
-def empty_dynamo_table(table):
+def empty_dynamo_table(table, key=None):
     scan = table.scan()
     with table.batch_writer() as batch:
-        for each in scan['Items']:
+        for each in scan["Items"]:
             batch.delete_item(
                 Key={
-                    'PrimaryKey': each['PrimaryKey']  # Replace 'PrimaryKey' with your actual primary key name
+                    "artist_name": each["artist_name"]  # Replace "PrimaryKey" with your actual primary key name
                 }
             )
-        while 'LastEvaluatedKey' in scan:
-            scan = table.scan(ExclusiveStartKey=scan['LastEvaluatedKey'])
-            for each in scan['Items']:
+        while "LastEvaluatedKey" in scan:
+            scan = table.scan(ExclusiveStartKey=scan["LastEvaluatedKey"])
+            for each in scan["Items"]:
                 batch.delete_item(
                     Key={
-                        'PrimaryKey': each['PrimaryKey']  # Replace 'PrimaryKey' with your actual primary key name
+                        "artist_name": each["artist_name"]  # Replace "PrimaryKey" with your actual primary key name
                     }
                 )

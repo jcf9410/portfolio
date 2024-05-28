@@ -2,3 +2,4 @@
 *.xml
 /Spotify Analysis/layer/
 Spotify Analysis/ETL/.cache
+*.pyc

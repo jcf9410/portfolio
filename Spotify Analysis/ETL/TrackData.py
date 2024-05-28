@@ -1,9 +1,6 @@
-import time
 from statistics import mean
 
 from common import get_spotipy_client, load_to_dynamo, parse_numeric_data, user_lib_scope
-
-start_time = time.time()
 
 valid_audio_features = ["danceability", "energy", "key", "loudness", "mode", "speechiness", "acousticness",
                         "instrumentalness", "liveness", "valence", "tempo"]
@@ -53,8 +50,11 @@ def clean_data(track):
 
 def get_change_in_feature(element, past_element, feature):
     if past_element[f"{feature}_confidence"] > 0.5 and element[f"{feature}_confidence"] > 0.5:  # enough confidence
-        if abs(past_element[feature] - element[feature]) / element[feature] > 0.05:  # 5% change
-            return True
+        try:
+            if abs(past_element[feature] - element[feature]) / element[feature] > 0.05:  # 5% change
+                return True
+        except ZeroDivisionError:
+            return False
     return False
 
 
@@ -68,12 +68,13 @@ def get_audio_features(tracks):
         features = sp.audio_features(ids)
         features_results.extend(features)
 
+    results = []
     for track, feature in zip(tracks, features_results):
-        feature = {k: v for k, v in feature.items() if k in valid_audio_features}
-        feature = {**track, **feature}
-        features_results.append(feature)
+        new_feature = {k: v for k, v in feature.items() if k in valid_audio_features}
+        new_feature = {**track, **new_feature}
+        results.append(new_feature)
 
-    return features_results
+    return results
 
 
 def get_advanced_audio_features(track):
@@ -132,9 +133,3 @@ results = get_audio_features(results)
 parse_numeric_data(results)
 
 load_to_dynamo(results, "track_info")
-
-end_time = time.time()
-
-# Calculate the elapsed time
-elapsed_time = end_time - start_time
-print(f"Execution time: {elapsed_time} seconds ({elapsed_time / 60} min)")

@@ -24,7 +24,7 @@ else:
     profile = None
 
 def parse_numeric_data(data):
-    ctx = Context(prec=38)
+    ctx = Context(prec=5)
 
     for entry in data:
         for k, v in entry.items():

@@ -5,7 +5,7 @@ from common import get_spotipy_client, load_to_dynamo, parse_numeric_data, user_
 valid_audio_features = ["danceability", "energy", "key", "loudness", "mode", "speechiness", "acousticness",
                         "instrumentalness", "liveness", "valence", "tempo"]
 
-_limit = 30
+_limit = 50
 
 
 def get_saved_tracks():

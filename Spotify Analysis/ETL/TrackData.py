@@ -1,5 +1,5 @@
 from statistics import mean
-
+import logging
 from common import get_spotipy_client, load_to_dynamo, parse_numeric_data, user_lib_scope
 
 valid_audio_features = ["danceability", "energy", "key", "loudness", "mode", "speechiness", "acousticness",
@@ -7,8 +7,10 @@ valid_audio_features = ["danceability", "energy", "key", "loudness", "mode", "sp
 
 _limit = 50
 
+logging.basicConfig(level=logging.INFO)
 
 def get_saved_tracks():
+    logging.info("Getting saved tracks...")
     sp = get_spotipy_client(user_lib_scope)
 
     all_results = []
@@ -30,19 +32,23 @@ def clean_data(track):
     track_id = track["id"]
     album = track["album"]["name"]
     artist = track["artists"][0]["name"]
+    artist_id = track["artists"][0]["id"]
     duration = track["duration_ms"] / 1000
     explicit = track["explicit"]
     name = track["name"]
     popularity = track["popularity"]
+    url = track["external_urls"]["spotify"]
 
     track_info = {
         "track_id": track_id,
         "album": album,
         "artist": artist,
+        "artist_id": artist_id,
         "duration": duration,
         "explicit": explicit,
         "track_name": name,
-        "popularity": popularity
+        "popularity": popularity,
+        "track_url": url
     }
 
     return track_info
@@ -59,6 +65,7 @@ def get_change_in_feature(element, past_element, feature):
 
 
 def get_audio_features(tracks):
+    logging.info("Getting audio features...")
     sp = get_spotipy_client(user_lib_scope)
     chunks = [tracks[i:i + 100] for i in range(0, len(tracks), 100)]
     features_results = []
@@ -118,18 +125,39 @@ def get_advanced_audio_features(track):
     return track_info
 
 
+def add_track_genre(tracks):
+    logging.info("Adding genres...")
+    sp = get_spotipy_client(user_lib_scope)
+
+    unique_artists = list(set([t["artist_id"] for t in tracks]))
+
+    chunks = [unique_artists[i:i + 50] for i in range(0, len(unique_artists), 50)]
+    unique_artists_info = []
+
+    for chunk in chunks:
+        response = sp.artists(chunk)
+        response = response["artists"]
+        unique_artists_info.extend(response)
+
+    artist_genres = {artist["name"]: artist["genres"] for artist in unique_artists_info}
+
+    for track in tracks:
+        track["genres"] = artist_genres[track["artist"]]
+
+
 all_tracks = get_saved_tracks()
 
 results = []
 
+logging.info("Getting extra features...")
 for track in all_tracks:
     clean_track = clean_data(track)
     clean_track = get_advanced_audio_features(clean_track)
-
     results.append(clean_track)
 
 results = get_audio_features(results)
-
+add_track_genre(results)
 parse_numeric_data(results)
-
 load_to_dynamo(results, "track_info")
+
+logging.info("Finished!")

@@ -48,7 +48,8 @@ def get_spotipy_client(scope):
 
     sp_oauth = SpotifyOAuth(client_id, client_secret, redirect_uri, scope=scope, cache_path=cache_path)
     token_info = sp_oauth.refresh_access_token(refresh_token)
-    sp = spotipy.Spotify(auth=token_info["access_token"])
+
+    sp = spotipy.Spotify(auth=token_info["access_token"], requests_timeout=25, retries=10)
 
     return sp
 

@@ -1,18 +1,22 @@
 from common import get_spotipy_client, load_to_dynamo, parse_numeric_data, user_top_scope
-
+import uuid
 
 def get_top_artists(limit=20):
     sp = get_spotipy_client(user_top_scope)
-    response = sp.current_user_top_artists(time_range="long_term", limit=limit)
-
     results = []
-    for artist in response["items"]:
-        artist_info = {
-            "artist_name": artist["name"],
-            "genres": artist["genres"],
-            "followers": artist["followers"]["total"]
-        }
-        results.append(artist_info)
+
+    for time_range in ("short_term", "medium_term", "long_term"):
+        response = sp.current_user_top_artists(time_range=time_range, limit=limit)
+
+        for artist in response["items"]:
+            artist_info = {
+                "id": str(uuid.uuid4()),
+                "artist_name": artist["name"],
+                "genres": artist["genres"],
+                "followers": artist["followers"]["total"],
+                "time_range": time_range
+            }
+            results.append(artist_info)
 
     return results
 

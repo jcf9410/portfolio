@@ -3,3 +3,4 @@
 *.pyc
 *.csv
 *.cache
+Spotify Analysis/ETL/.cache

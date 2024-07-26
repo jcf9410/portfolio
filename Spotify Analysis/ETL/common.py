@@ -54,27 +54,43 @@ def get_spotipy_client(scope):
     return sp
 
 
-def load_to_dynamo(data, table_name, empty_table=None):
+def read_full_dynamo_table(table_name):
+    session = boto3.Session(profile_name="default")
+    dynamodb = session.resource("dynamodb", region_name="eu-west-1")
+    table = dynamodb.Table(table_name)
+    response = table.scan()
+    data = response["Items"]
+
+    # Handle pagination
+    while "LastEvaluatedKey" in response:
+        response = table.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
+        data.extend(response["Items"])
+
+    return data
+
+
+def load_to_dynamo(data, table_name, empty_table=False):
     session = boto3.Session(profile_name=profile)
 
     dynamodb = session.resource("dynamodb", region_name="eu-west-1")
     table = dynamodb.Table(table_name)
+    keys = [k["AttributeName"] for k in table.key_schema]
 
     if empty_table:
-        empty_dynamo_table(table)
+        empty_dynamo_table(table, keys)
 
     with table.batch_writer() as batch:
         for item in data:
             batch.put_item(Item=item)
 
 
-def empty_dynamo_table(table, key=None):
+def empty_dynamo_table(table, keys=None):
     scan = table.scan()
     with table.batch_writer() as batch:
         for each in scan["Items"]:
             batch.delete_item(
                 Key={
-                    "artist_name": each["artist_name"]  # Replace "PrimaryKey" with your actual primary key name
+                    key: each[key] for key in keys  # Replace "PrimaryKey" with your actual primary key name
                 }
             )
         while "LastEvaluatedKey" in scan:
@@ -82,6 +98,6 @@ def empty_dynamo_table(table, key=None):
             for each in scan["Items"]:
                 batch.delete_item(
                     Key={
-                        "artist_name": each["artist_name"]  # Replace "PrimaryKey" with your actual primary key name
+                        key: each[key] for key in keys  # Replace "PrimaryKey" with your actual primary key name
                     }
                 )

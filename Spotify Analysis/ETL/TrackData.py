@@ -1,6 +1,7 @@
-from statistics import mean
 import logging
-from common import get_spotipy_client, load_to_dynamo, parse_numeric_data, user_lib_scope
+from statistics import mean
+
+from common import get_spotipy_client, read_full_dynamo_table, load_to_dynamo, parse_numeric_data, user_lib_scope
 
 valid_audio_features = ["danceability", "energy", "key", "loudness", "mode", "speechiness", "acousticness",
                         "instrumentalness", "liveness", "valence", "tempo"]
@@ -8,6 +9,7 @@ valid_audio_features = ["danceability", "energy", "key", "loudness", "mode", "sp
 _limit = 50
 
 logging.basicConfig(level=logging.INFO)
+
 
 def get_saved_tracks():
     logging.info("Getting saved tracks...")
@@ -145,19 +147,40 @@ def add_track_genre(tracks):
         track["genres"] = artist_genres[track["artist"]]
 
 
-all_tracks = get_saved_tracks()
+def filter_new_tracks(tracks):
+    logging.info("Filtering tracks...")
+    saved_tracks = read_full_dynamo_table("track_info")
+    saved_ids = {track["track_id"] for track in saved_tracks}
 
-results = []
+    filtered_tracks = []
 
-logging.info("Getting extra features...")
-for track in all_tracks:
-    clean_track = clean_data(track)
-    clean_track = get_advanced_audio_features(clean_track)
-    results.append(clean_track)
+    for track in tracks:
+        if track["id"] not in saved_ids:
+            filtered_tracks.append(track)
+    return filtered_tracks
 
-results = get_audio_features(results)
-add_track_genre(results)
-parse_numeric_data(results)
-load_to_dynamo(results, "track_info")
 
-logging.info("Finished!")
+def main(filter_tracks=True):
+    all_tracks = get_saved_tracks()
+
+    if filter_tracks:
+        all_tracks = filter_new_tracks(all_tracks)
+
+    results = []
+
+    logging.info("Getting extra features...")
+    for track in all_tracks:
+        clean_track = clean_data(track)
+        clean_track = get_advanced_audio_features(clean_track)
+        results.append(clean_track)
+
+    results = get_audio_features(results)
+    add_track_genre(results)
+    parse_numeric_data(results)
+    load_to_dynamo(results, "track_info")
+
+    logging.info("Finished!")
+
+
+if __name__ == "__main__":
+    main()

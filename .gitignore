@@ -4,3 +4,7 @@
 *.csv
 *.cache
 Spotify Analysis/ETL/.cache
+*.pkl
+Spotify Analysis/Analysis/regression
+*.log
+Spotify Analysis/Analysis/nn_model.keras

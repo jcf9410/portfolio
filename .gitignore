@@ -8,3 +8,8 @@ Spotify Analysis/ETL/.cache
 Spotify Analysis/Analysis/regression
 *.log
 Spotify Analysis/Analysis/nn_model.keras
+test.py
+*.xlsx
+/Spotify Analysis/Analysis/.ipynb_checkpoints
+Spotify Analysis/Analysis/Regression-Clean-Extra.ipynb
+Spotify Analysis/ETL/.cache

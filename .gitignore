@@ -3,6 +3,7 @@
 *.pyc
 *.csv
 *.cache
+/Spotify Analysis/Analysis/.ipynb_checkpoints
 Spotify Analysis/ETL/.cache
 *.pkl
 Spotify Analysis/Analysis/regression
@@ -10,13 +11,8 @@ Spotify Analysis/Analysis/regression
 Spotify Analysis/Analysis/nn_model.keras
 test.py
 *.xlsx
-/Spotify Analysis/Analysis/.ipynb_checkpoints
 Spotify Analysis/Analysis/Regression-Clean-Extra.ipynb
-Spotify Analysis/ETL/.cache
 /Deprecated
 Spotify Analysis/Analysis/layer
 Spotify Analysis/Analysis/.cache
-/Spotify Analysis/Analysis/.ipynb_checkpoints
-Spotify Analysis/ETL/.cache
-Spotify Analysis/ETL/.cache
-/Spotify Analysis/Analysis/.ipynb_checkpoints
+*.twbr

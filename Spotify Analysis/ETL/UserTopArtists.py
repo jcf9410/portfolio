@@ -14,7 +14,9 @@ def get_top_artists(limit=20):
                 "artist_name": artist["name"],
                 "genres": artist["genres"],
                 "followers": artist["followers"]["total"],
-                "time_range": time_range
+                "time_range": time_range,
+                "img": artist["images"][0]["url"],
+                "url": artist["external_urls"]["spotify"]
             }
             results.append(artist_info)
 

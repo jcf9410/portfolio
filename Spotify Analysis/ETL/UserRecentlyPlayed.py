@@ -10,7 +10,8 @@ def get_recently_played(limit=25):
         track_info = {
             "track_name": track["track"]["name"],
             "album": track["track"]["album"]["name"],
-            "artist": track["track"]["artists"][0]["name"]
+            "artist": track["track"]["artists"][0]["name"],
+            "url": track["track"]["external_urls"]["spotify"],
         }
         results.append(track_info)
 

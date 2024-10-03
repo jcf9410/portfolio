@@ -9,7 +9,7 @@ Spotify Analysis/ETL/.cache
 Spotify Analysis/Analysis/regression
 *.log
 Spotify Analysis/Analysis/nn_model.keras
-test.py
+test.html
 *.xlsx
 Spotify Analysis/Analysis/Regression-Clean-Extra.ipynb
 /Deprecated

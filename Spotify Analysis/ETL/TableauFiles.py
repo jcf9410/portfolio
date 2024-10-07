@@ -17,3 +17,5 @@ if platform.system() == "Windows":
     recently_played.to_csv("Analysis\\recently_played_last.csv")
 else:
     pass
+    # if executed in a cloud service, file management should be included here.
+    # Files could be uploaded to s3 or another service to later be consumed by Tableau.

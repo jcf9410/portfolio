@@ -83,7 +83,10 @@ df = execute_query(q)
     # df[c] = df[c].fillna("NULL")
 
 
-maps_key = "AIzaSyD8V5kRghqeYicSYTeW6SnFEbM1Cx8_9yw"
+ssm = boto3.client("ssm", region_name="eu-west-1")
+maps_key = ssm.get_parameter(Name="GOOGLE_MAPS_GEOCODING_API_KEY", WithDecryption=True)
+maps_key = maps_key["Parameter"]["Value"]
+
 
 # WARNING!! Limit to 40k request monthly. Around 4k are in db for all pages in a clean run
 gmaps = googlemaps.Client(key=maps_key)

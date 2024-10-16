@@ -6,21 +6,23 @@ import time
 
 import boto3
 import psycopg2
-import undetected_chromedriver as uc
-from selenium import webdriver
 from selenium.common import NoSuchElementException, InvalidSelectorException
 from selenium.webdriver.common.by import By
+from seleniumbase import Driver
 
 
 class HouseScrapper:
-    max_page = 2
     default_url = "https://www.fotocasa.es/es/alquiler/viviendas/barcelona-provincia/todas-las-zonas/l/{}?sortType=publicationDate"
 
     driver = None
     db_connection = None
     logger = None
+    cursor = None
+    db_initiated = False
 
-    def __init__(self, log_level=logging.DEBUG):
+    def __init__(self, max_page=50, log_level=logging.DEBUG):
+        self.max_page = max_page
+
         self.logger = logging.getLogger(__class__.__name__)
         self.logger.setLevel(log_level)
         console_handler = logging.StreamHandler()
@@ -29,6 +31,11 @@ class HouseScrapper:
 
         self.logger.debug("Logger set")
 
+        agent = "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+        self.driver = Driver(uc=True, agent=agent)
+        self.logger.debug("Driver created")
+
+    def init_db(self):
         ssm = boto3.client("ssm", region_name="eu-west-1")
         db_pass = ssm.get_parameter(Name="POSTGRESQL_PASS", WithDecryption=True)
         db_pass = db_pass["Parameter"]["Value"]
@@ -38,65 +45,61 @@ class HouseScrapper:
                                               user="postgres",
                                               password=db_pass,
                                               port=5432)
-        self.logger.debug("DB connection set")
-
-        options = webdriver.ChromeOptions()
-        options.add_argument(
-            "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
-        self.driver = uc.Chrome(options=options)
-        self.logger.debug("Driver created")
+        self.cursor = self.db_connection.cursor()
+        self.db_initiated = True
+        self.logger.info("DB connection set")
 
     def get_elements_from_pages(self):
         results = []
 
-        # try:
         for i in range(1, self.max_page):
-            self.logger.debug(f"Getting page {i}")
+            self.logger.info(f"Getting page {i}")
             page_url = self.default_url.format(i)
             self.driver.get(page_url)
 
             if i == 1:
-                self.logger.debug("Accepting cookies")
+                self.logger.info("Accepting cookies")
                 time.sleep(3)
                 try:
                     elem = self.driver.find_element(By.ID, "didomi-notice-agree-button")
                     elem.click()
                 except NoSuchElementException:
                     pass
+            try:
+                self.driver.find_element(By.CLASS_NAME, "re-SearchNoResults")
+                break
+            except NoSuchElementException:
+                page_height = self.driver.execute_script("return document.body.scrollHeight")
+                for j in range(0, int(page_height * 0.8), 500):
+                    self.driver.execute_script(f"window.scrollTo(0, {j});")
+                    time.sleep(random.randint(0, 7) / 10)
+                self.driver.execute_script("window.scrollTo(0, 0);")
 
-            page_height = self.driver.execute_script("return document.body.scrollHeight")
-            for j in range(0, int(page_height * 0.8), 500):
-                self.driver.execute_script(f"window.scrollTo(0, {j});")
-                time.sleep(random.randint(0, 7) / 10)
-            self.driver.execute_script("window.scrollTo(0, 0);")
+                elements = self.driver.find_elements(By.CLASS_NAME, "re-CardPackMinimal")
 
-            elements = self.driver.find_elements(By.CLASS_NAME, "re-CardPackMinimal")
+                urls = []
+                for e in elements:
+                    url = e.find_element(By.CLASS_NAME, "re-CardPackMinimal-slider").get_attribute("href")
+                    urls.append(url)
 
-            urls = []
-            for e in elements:
-                url = e.find_element(By.CLASS_NAME, "re-CardPackMinimal-slider").get_attribute("href")
-                urls.append(url)
-
-            results.extend(urls)
+                results.extend(urls)
 
         return results
 
-    def process_element(self, element_class):
+    def process_element(self, element_class, raw=False):
         self.logger.debug(f"Processing element {element_class}")
         element = self.driver.find_element(By.CLASS_NAME, element_class)
 
         match element_class:
             case "re-DetailHeader-price" | "re-DetailHeader-rooms" | "re-DetailHeader-bathrooms" | "re-DetailHeader-surface":
-                try:
-                    if element.text != "A consultar":
-                        element = re.findall("\d+", element.text)[0]
-                        element = int(element.replace(".", ""))
-                except Exception as e:
-                    print(repr(e))
-                    raise e
-
+                if element.text != "A consultar":
+                    element = re.findall("\d+.\d+|\d+", element.text)[0]
+                    element = int(element.replace(".", ""))
             case "re-DetailHeader-propertyTitle":
-                element = element.text.split(" en ")[1].split(",")[0]
+                if raw:
+                    element = element.text.split(" en ")[1]
+                else:
+                    element = element.text.split(" en ")[1].split(",")[0]
             case "re-DetailHeader-municipalityTitle":
                 element = element.text
         return element
@@ -133,12 +136,13 @@ class HouseScrapper:
         elif "Mascotas" in element:
             features["pets"] = element.split("\n")[1].lower() in ("sí", "si")
         else:
-            print(f"element not recognized: {element}")
+            self.logger.debug(f"element not recognized: {element}")
 
     def get_element_fields(self, element_url, index):
         self.logger.debug(f"Getting elements from url")
         self.driver.get(element_url)
         if index == 0:
+            self.logger.debug(f"Waiting for cookies")
             self.driver.implicitly_wait(3)
             try:
                 elem = self.driver.find_element(By.ID, "didomi-notice-agree-button")
@@ -158,7 +162,7 @@ class HouseScrapper:
         try:
             if (self.driver.find_element(By.CLASS_NAME,
                                          "sui-MoleculeModal-header").text == "Anuncio no disponible"):
-                self.logger.debug(f"Inactive url")
+                self.logger.error(f"Inactive url")
                 features["active"] = False
         except NoSuchElementException:
             process = True
@@ -166,11 +170,12 @@ class HouseScrapper:
         try:
             if self.driver.find_element(By.CLASS_NAME, "re - Error404Title").text == "La página no existe":
                 features["active"] = False
-                self.logger.debug(f"Inactive url")
+                self.logger.error(f"Inactive url")
         except InvalidSelectorException:
             process = True
 
         if process:
+            self.logger.debug(f"Getting features")
             features["active"] = True
             try:
                 features["price"] = self.process_element("re-DetailHeader-price")
@@ -181,7 +186,7 @@ class HouseScrapper:
                     features[element_type] = self.process_element(f"re-DetailHeader-{element_type}")
                 except Exception as e:
                     if isinstance(e, NoSuchElementException):
-                        print(f"Element not found: {element_type}")
+                        self.logger.debug(f"Element not found: {element_type}")
                     else:
                         raise e
 
@@ -190,71 +195,85 @@ class HouseScrapper:
 
         features["street_name"] = self.process_element(f"re-DetailHeader-propertyTitle")
         features["city"] = self.process_element(f"re-DetailHeader-municipalityTitle")
+        features["full_street_city"] = self.process_element(f"re-DetailHeader-propertyTitle", raw=True)
 
         features["timestamp"] = str(datetime.datetime.now(datetime.timezone.utc))
 
         return features
 
     def upload_to_db(self, data, table_name):
-        cursor = self.db_connection.cursor()
         try:
             columns = ", ".join(data.keys())
             values = ", ".join(["%s"] * len(data))
 
             sql = f"INSERT INTO {table_name} ({columns}) VALUES ({values})"
 
-            cursor.execute(sql, list(data.values()))
+            self.cursor.execute(sql, list(data.values()))
             self.db_connection.commit()
 
-            print(f"Record inserted into {table_name}")
+            self.logger.info(f"Record inserted into {table_name}")
 
         except Exception as e:
-            print(f"Error: {e}")
+            self.logger.error(f"Error: {e}")
             self.db_connection.rollback()
-        finally:
-            cursor.close()
-        return
 
     def check_if_element_exists(self, element):
         self.logger.debug(f"Checking element {element} in DB")
-        cursor = self.db_connection.cursor()
         element_id = element["id"]
-        try:
-            sql = f"SELECT * FROM houses_scrapper WHERE id = %s"
+        # try:
+        sql = f"SELECT * FROM houses_scrapper WHERE id = %s"
 
-            cursor.execute(sql, (element_id,))
-            result = cursor.fetchone()
-            return result is not None
-        except Exception as e:
-            raise e
-        finally:
-            cursor.close()
+        self.cursor.execute(sql, (element_id,))
+        result = self.cursor.fetchone()
+        return result is not None
+        # except Exception as e:
+        # raise e
 
     def update_inactive_element(self, element):
-        self.logger.debug(f"Updating element {element} in DB")
-        cursor = self.db_connection.cursor()
+        self.logger.info(f"Updating element {element} in DB")
         element_id = element["id"]
         try:
             sql = f"UPDATE houses_scrapper SET active = false WHERE id = %s;"
 
-            cursor.execute(sql, (element_id,))
+            self.cursor.execute(sql, (element_id,))
             self.db_connection.commit()
 
         except Exception as e:
-            print(f"Error: {e}")
+            self.logger.error(f"Error: {e}")
             self.db_connection.rollback()
-        finally:
-            cursor.close()
 
-    def main(self):
+    def check_and_update_inactive_elements(self):
+        # read all active urls in db
+        if not self.db_initiated:
+            self.init_db()
+        sql = "SELECT id, url FROM houses_scrapper WHERE active"
+        self.cursor.execute(sql)
+        results = self.cursor.fetchall()
+
+        for result in results:
+            # check if still active. If not, change flag
+            try:
+                if (self.driver.find_element(By.CLASS_NAME,
+                                             "sui-MoleculeModal-header").text == "Anuncio no disponible"):
+                    self.update_inactive_element(result)
+            except (NoSuchElementException, InvalidSelectorException):
+                pass
+            try:
+                if self.driver.find_element(By.CLASS_NAME, "re - Error404Title").text == "La página no existe":
+                    self.update_inactive_element(result)
+            except (NoSuchElementException, InvalidSelectorException):
+                pass
+
+    def extract_and_upload(self):
         try:
             # get elements from pages
             page_elements = self.get_elements_from_pages()
             total_elements = len(page_elements)
 
             # extract fields
+            self.init_db()
             for i, element in enumerate(page_elements):
-                print(f"Processing element {i+1} of {total_elements}")
+                self.logger.info(f"Processing element {i + 1} of {total_elements}")
                 results = self.get_element_fields(element, i)
 
                 # save to DB
@@ -267,14 +286,19 @@ class HouseScrapper:
         except Exception as e:
             raise e
         finally:
-            self.db_connection.close()
+            if self.db_initiated:
+                self.cursor.close()
+                self.db_connection.close()
+            self.logger.info("DB connection closed")
             self.driver.quit()
+            self.logger.info("Driver closed")
 
 
 if __name__ == "__main__":
     start_t = datetime.datetime.now()
-    scrapper = HouseScrapper()
-    scrapper.main()
+    scrapper = HouseScrapper(max_page=150, log_level=logging.INFO)
+    scrapper.extract_and_upload()
+    # scrapper.check_and_update_inactive_elements()
     end_t = datetime.datetime.now()
 
     print(f"Execution name: {end_t - start_t}")

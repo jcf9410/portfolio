@@ -49,6 +49,15 @@ class HouseScrapper:
         self.db_initiated = True
         self.logger.info("DB connection set")
 
+    def accept_cookies(self):
+        self.logger.info("Accepting cookies")
+        self.driver.implicitly_wait(3)
+        try:
+            elem = self.driver.find_element(By.ID, "didomi-notice-agree-button")
+            elem.click()
+        except NoSuchElementException:
+            pass
+
     def get_elements_from_pages(self):
         results = []
 
@@ -58,13 +67,14 @@ class HouseScrapper:
             self.driver.get(page_url)
 
             if i == 1:
-                self.logger.info("Accepting cookies")
-                time.sleep(3)
-                try:
-                    elem = self.driver.find_element(By.ID, "didomi-notice-agree-button")
-                    elem.click()
-                except NoSuchElementException:
-                    pass
+                self.accept_cookies()
+                # self.logger.info("Accepting cookies")
+                # time.sleep(3)
+                # try:
+                #     elem = self.driver.find_element(By.ID, "didomi-notice-agree-button")
+                #     elem.click()
+                # except NoSuchElementException:
+                #     pass
             try:
                 self.driver.find_element(By.CLASS_NAME, "re-SearchNoResults")
                 break
@@ -142,13 +152,14 @@ class HouseScrapper:
         self.logger.debug(f"Getting elements from url")
         self.driver.get(element_url)
         if index == 0:
-            self.logger.debug(f"Waiting for cookies")
-            self.driver.implicitly_wait(3)
-            try:
-                elem = self.driver.find_element(By.ID, "didomi-notice-agree-button")
-                elem.click()
-            except NoSuchElementException:
-                pass
+            self.accept_cookies()
+            # self.logger.debug(f"Waiting for cookies")
+            # self.driver.implicitly_wait(3)
+            # try:
+            #     elem = self.driver.find_element(By.ID, "didomi-notice-agree-button")
+            #     elem.click()
+            # except NoSuchElementException:
+            #     pass
 
         features = {}
 
@@ -229,11 +240,10 @@ class HouseScrapper:
         # except Exception as e:
         # raise e
 
-    def update_inactive_element(self, element):
-        self.logger.info(f"Updating element {element} in DB")
-        element_id = element["id"]
+    def update_inactive_element(self, element_id):
+        self.logger.info(f"Updating element {element_id} in DB")
         try:
-            sql = f"UPDATE houses_scrapper SET active = false WHERE id = %s;"
+            sql = "UPDATE houses_scrapper SET active = false WHERE id = %s;"
 
             self.cursor.execute(sql, (element_id,))
             self.db_connection.commit()
@@ -244,25 +254,38 @@ class HouseScrapper:
 
     def check_and_update_inactive_elements(self):
         # read all active urls in db
-        if not self.db_initiated:
-            self.init_db()
-        sql = "SELECT id, url FROM houses_scrapper WHERE active"
-        self.cursor.execute(sql)
-        results = self.cursor.fetchall()
+        try:
+            if not self.db_initiated:
+                self.init_db()
+            sql = "SELECT id, url FROM houses_scrapper WHERE active"
+            self.cursor.execute(sql)
+            results = self.cursor.fetchall()
 
-        for result in results:
-            # check if still active. If not, change flag
-            try:
-                if (self.driver.find_element(By.CLASS_NAME,
-                                             "sui-MoleculeModal-header").text == "Anuncio no disponible"):
-                    self.update_inactive_element(result)
-            except (NoSuchElementException, InvalidSelectorException):
-                pass
-            try:
-                if self.driver.find_element(By.CLASS_NAME, "re - Error404Title").text == "La página no existe":
-                    self.update_inactive_element(result)
-            except (NoSuchElementException, InvalidSelectorException):
-                pass
+            for i, result in enumerate(results):
+                self.logger.debug(f"Checking element {result[0]}")
+                self.driver.get(result[1])
+                if i == 0:
+                    self.accept_cookies()
+                try:
+                    if (self.driver.find_element(By.CLASS_NAME,
+                                                 "sui-MoleculeModal-header").text == "Anuncio no disponible"):
+                        self.update_inactive_element(result[0])
+                except (NoSuchElementException, InvalidSelectorException):
+                    pass
+                try:
+                    if self.driver.find_element(By.CLASS_NAME, "re - Error404Title").text == "La página no existe":
+                        self.update_inactive_element(result[0])
+                except (NoSuchElementException, InvalidSelectorException):
+                    pass
+        except Exception as e:
+            raise e
+        finally:
+            if self.db_initiated:
+                self.cursor.close()
+                self.db_connection.close()
+            self.logger.info("DB connection closed")
+            self.driver.quit()
+            self.logger.info("Driver closed")
 
     def extract_and_upload(self):
         try:
@@ -280,7 +303,7 @@ class HouseScrapper:
                 if results is not None:
                     if self.check_if_element_exists(results):
                         if not results["active"]:
-                            self.update_inactive_element(results)
+                            self.update_inactive_element(results["id"])
                     else:
                         self.upload_to_db(results, "houses_scrapper")
         except Exception as e:
@@ -296,9 +319,9 @@ class HouseScrapper:
 
 if __name__ == "__main__":
     start_t = datetime.datetime.now()
-    scrapper = HouseScrapper(max_page=150, log_level=logging.INFO)
+    scrapper = HouseScrapper(max_page=50, log_level=logging.INFO)
     scrapper.extract_and_upload()
-    # scrapper.check_and_update_inactive_elements()
+    scrapper.check_and_update_inactive_elements()
     end_t = datetime.datetime.now()
 
     print(f"Execution name: {end_t - start_t}")

@@ -18,3 +18,6 @@ Spotify Analysis/Analysis/.cache
 *.twbr
 /Housing Analysis/.ipynb_checkpoints
 *.lock
+/Housing Analysis/ETL/downloaded_files/
+test.py
+Housing Analysis/metadata_ctgan.json

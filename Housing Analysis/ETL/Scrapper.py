@@ -68,13 +68,6 @@ class HouseScrapper:
 
             if i == 1:
                 self.accept_cookies()
-                # self.logger.info("Accepting cookies")
-                # time.sleep(3)
-                # try:
-                #     elem = self.driver.find_element(By.ID, "didomi-notice-agree-button")
-                #     elem.click()
-                # except NoSuchElementException:
-                #     pass
             try:
                 self.driver.find_element(By.CLASS_NAME, "re-SearchNoResults")
                 break
@@ -153,13 +146,6 @@ class HouseScrapper:
         self.driver.get(element_url)
         if index == 0:
             self.accept_cookies()
-            # self.logger.debug(f"Waiting for cookies")
-            # self.driver.implicitly_wait(3)
-            # try:
-            #     elem = self.driver.find_element(By.ID, "didomi-notice-agree-button")
-            #     elem.click()
-            # except NoSuchElementException:
-            #     pass
 
         features = {}
 
@@ -243,7 +229,7 @@ class HouseScrapper:
     def update_inactive_element(self, element_id):
         self.logger.info(f"Updating element {element_id} in DB")
         try:
-            sql = "UPDATE houses_scrapper SET active = false WHERE id = %s;"
+            sql = "UPDATE houses_scrapper SET active = false, last_updated = NOW() WHERE id = %s;"
 
             self.cursor.execute(sql, (element_id,))
             self.db_connection.commit()
@@ -252,12 +238,12 @@ class HouseScrapper:
             self.logger.error(f"Error: {e}")
             self.db_connection.rollback()
 
-    def check_and_update_inactive_elements(self):
+    def check_and_update_inactive_elements(self, limit=10000):
         # read all active urls in db
         try:
             if not self.db_initiated:
                 self.init_db()
-            sql = "SELECT id, url FROM houses_scrapper WHERE active"
+            sql = f"SELECT id, url FROM houses_scrapper WHERE active ORDER BY timestamp ASC LIMIT {limit}"
             self.cursor.execute(sql)
             results = self.cursor.fetchall()
 
@@ -319,9 +305,9 @@ class HouseScrapper:
 
 if __name__ == "__main__":
     start_t = datetime.datetime.now()
-    scrapper = HouseScrapper(max_page=50, log_level=logging.INFO)
-    scrapper.extract_and_upload()
-    scrapper.check_and_update_inactive_elements()
+    scrapper = HouseScrapper(max_page=10, log_level=logging.INFO)
+    # scrapper.extract_and_upload()
+    scrapper.check_and_update_inactive_elements(limit=100)
     end_t = datetime.datetime.now()
 
     print(f"Execution name: {end_t - start_t}")

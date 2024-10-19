@@ -269,6 +269,7 @@ class HouseScrapper:
             if self.db_initiated:
                 self.cursor.close()
                 self.db_connection.close()
+                self.db_initiated = False
             self.logger.info("DB connection closed")
             self.driver.quit()
             self.logger.info("Driver closed")
@@ -298,6 +299,7 @@ class HouseScrapper:
             if self.db_initiated:
                 self.cursor.close()
                 self.db_connection.close()
+                self.db_initiated = False
             self.logger.info("DB connection closed")
             self.driver.quit()
             self.logger.info("Driver closed")
@@ -306,8 +308,8 @@ class HouseScrapper:
 if __name__ == "__main__":
     start_t = datetime.datetime.now()
     scrapper = HouseScrapper(max_page=10, log_level=logging.INFO)
-    # scrapper.extract_and_upload()
-    scrapper.check_and_update_inactive_elements(limit=100)
+    scrapper.extract_and_upload()
+    scrapper.check_and_update_inactive_elements(limit=50)
     end_t = datetime.datetime.now()
 
     print(f"Execution name: {end_t - start_t}")

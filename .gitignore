@@ -21,3 +21,6 @@ Spotify Analysis/Analysis/.cache
 /Housing Analysis/ETL/downloaded_files/
 test.py
 Housing Analysis/metadata_ctgan.json
+Housing Analysis/Analysis/metadata_ctgan.json
+*.gpkg
+/Housing Analysis/Analysis/.ipynb_checkpoints

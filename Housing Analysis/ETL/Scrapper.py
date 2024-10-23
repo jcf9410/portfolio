@@ -19,9 +19,13 @@ class HouseScrapper:
     logger = None
     cursor = None
     db_initiated = False
+    steps_map = None
 
-    def __init__(self, max_page=50, log_level=logging.DEBUG):
-        self.max_page = max_page
+    def __init__(self, log_level=logging.DEBUG):
+        self.steps_map = {
+            "extract_and_upload": self.extract_and_upload,
+            "update": self.check_and_update_inactive_elements
+        }
 
         self.logger = logging.getLogger(__class__.__name__)
         self.logger.setLevel(log_level)
@@ -58,10 +62,10 @@ class HouseScrapper:
         except NoSuchElementException:
             pass
 
-    def get_elements_from_pages(self):
+    def get_elements_from_pages(self, max_page=1):
         results = []
 
-        for i in range(1, self.max_page):
+        for i in range(1, max_page):
             self.logger.info(f"Getting page {i}")
             page_url = self.default_url.format(i)
             self.driver.get(page_url)
@@ -223,8 +227,6 @@ class HouseScrapper:
         self.cursor.execute(sql, (element_id,))
         result = self.cursor.fetchone()
         return result is not None
-        # except Exception as e:
-        # raise e
 
     def update_inactive_element(self, element_id):
         self.logger.info(f"Updating element {element_id} in DB")
@@ -240,59 +242,56 @@ class HouseScrapper:
 
     def check_and_update_inactive_elements(self, limit=10000):
         # read all active urls in db
-        try:
-            if not self.db_initiated:
-                self.init_db()
-            sql = f"SELECT id, url FROM houses_scrapper WHERE active ORDER BY timestamp ASC LIMIT {limit}"
-            self.cursor.execute(sql)
-            results = self.cursor.fetchall()
-
-            for i, result in enumerate(results):
-                self.logger.debug(f"Checking element {result[0]}")
-                self.driver.get(result[1])
-                if i == 0:
-                    self.accept_cookies()
-                try:
-                    if (self.driver.find_element(By.CLASS_NAME,
-                                                 "sui-MoleculeModal-header").text == "Anuncio no disponible"):
-                        self.update_inactive_element(result[0])
-                except (NoSuchElementException, InvalidSelectorException):
-                    pass
-                try:
-                    if self.driver.find_element(By.CLASS_NAME, "re - Error404Title").text == "La página no existe":
-                        self.update_inactive_element(result[0])
-                except (NoSuchElementException, InvalidSelectorException):
-                    pass
-        except Exception as e:
-            raise e
-        finally:
-            if self.db_initiated:
-                self.cursor.close()
-                self.db_connection.close()
-                self.db_initiated = False
-            self.logger.info("DB connection closed")
-            self.driver.quit()
-            self.logger.info("Driver closed")
-
-    def extract_and_upload(self):
-        try:
-            # get elements from pages
-            page_elements = self.get_elements_from_pages()
-            total_elements = len(page_elements)
-
-            # extract fields
+        if not self.db_initiated:
             self.init_db()
-            for i, element in enumerate(page_elements):
-                self.logger.info(f"Processing element {i + 1} of {total_elements}")
-                results = self.get_element_fields(element, i)
+        sql = f"SELECT id, url FROM houses_scrapper WHERE active ORDER BY timestamp ASC LIMIT {limit}"
+        self.cursor.execute(sql)
+        results = self.cursor.fetchall()
 
-                # save to DB
-                if results is not None:
-                    if self.check_if_element_exists(results):
-                        if not results["active"]:
-                            self.update_inactive_element(results["id"])
-                    else:
-                        self.upload_to_db(results, "houses_scrapper")
+        self.logger.info(f"Checking {len(results)} elements")
+
+        for i, result in enumerate(results):
+            self.logger.debug(f"Checking element {result[0]}")
+            self.driver.get(result[1])
+            if i == 0:
+                self.accept_cookies()
+            try:
+                if (self.driver.find_element(By.CLASS_NAME,
+                                             "sui-MoleculeModal-header").text == "Anuncio no disponible"):
+                    self.update_inactive_element(result[0])
+            except (NoSuchElementException, InvalidSelectorException):
+                pass
+            try:
+                if self.driver.find_element(By.CLASS_NAME, "re - Error404Title").text == "La página no existe":
+                    self.update_inactive_element(result[0])
+            except (NoSuchElementException, InvalidSelectorException):
+                pass
+
+    def extract_and_upload(self, max_page=1):
+        # get elements from pages
+        page_elements = self.get_elements_from_pages(max_page)
+        total_elements = len(page_elements)
+
+        # extract fields
+        self.init_db()
+        for i, element in enumerate(page_elements):
+            self.logger.info(f"Processing element {i + 1} of {total_elements}")
+            results = self.get_element_fields(element, i)
+
+            # save to DB
+            if results is not None:
+                if self.check_if_element_exists(results):
+                    if not results["active"]:
+                        self.update_inactive_element(results["id"])
+                else:
+                    self.upload_to_db(results, "houses_scrapper")
+
+    def pipeline(self, steps=None):
+        if steps is None:
+            steps = [("extract_and_upload", {}), ("update", {"limit": 100})]
+        try:
+            for step, param in steps:
+                self.steps_map[step](**param)
         except Exception as e:
             raise e
         finally:
@@ -306,10 +305,10 @@ class HouseScrapper:
 
 
 if __name__ == "__main__":
+    steps = [("update", {"limit": 5}), ("extract_and_upload", {"max_page": 3})]
     start_t = datetime.datetime.now()
-    scrapper = HouseScrapper(max_page=10, log_level=logging.INFO)
-    scrapper.extract_and_upload()
-    scrapper.check_and_update_inactive_elements(limit=50)
+    scrapper = HouseScrapper(log_level=logging.INFO)
+    scrapper.pipeline(steps=steps)
     end_t = datetime.datetime.now()
 
     print(f"Execution name: {end_t - start_t}")

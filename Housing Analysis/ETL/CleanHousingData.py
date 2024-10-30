@@ -79,7 +79,7 @@ def add_geo_info(df):
     maps_key = ssm.get_parameter(Name="GOOGLE_MAPS_GEOCODING_API_KEY", WithDecryption=True)
     maps_key = maps_key["Parameter"]["Value"]
 
-    # WARNING!! Limit to 40k request monthly. Around 4k are in db for all pages in a clean run
+    # WARNING!! Limit to 40k request monthly.
     logging.info("Adding geographic info")
     gmaps = googlemaps.Client(key=maps_key)
 

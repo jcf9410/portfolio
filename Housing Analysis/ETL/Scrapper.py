@@ -62,15 +62,15 @@ class HouseScrapper:
         except NoSuchElementException:
             pass
 
-    def get_elements_from_pages(self, max_page=1):
+    def get_elements_from_pages(self, min_page=1, max_page=1):
         results = []
 
-        for i in range(1, max_page):
+        for i in range(min_page, max_page):
             self.logger.info(f"Getting page {i}")
             page_url = self.default_url.format(i)
             self.driver.get(page_url)
 
-            if i == 1:
+            if i == min_page:
                 self.accept_cookies()
             try:
                 self.driver.find_element(By.CLASS_NAME, "re-SearchNoResults")
@@ -267,9 +267,9 @@ class HouseScrapper:
             except (NoSuchElementException, InvalidSelectorException):
                 pass
 
-    def extract_and_upload(self, max_page=1):
+    def extract_and_upload(self, min_page=1, max_page=1):
         # get elements from pages
-        page_elements = self.get_elements_from_pages(max_page)
+        page_elements = self.get_elements_from_pages(min_page=min_page, max_page=max_page)
         total_elements = len(page_elements)
 
         # extract fields
@@ -305,7 +305,7 @@ class HouseScrapper:
 
 
 if __name__ == "__main__":
-    steps = [("update", {"limit": 5}), ("extract_and_upload", {"max_page": 3})]
+    steps = [("update", {"limit": 10}), ("extract_and_upload", {"min_page": 1, "max_page": 5})]
     start_t = datetime.datetime.now()
     scrapper = HouseScrapper(log_level=logging.INFO)
     scrapper.pipeline(steps=steps)

@@ -30,3 +30,5 @@
 # city = address.get('city', '')
 
 # address
+
+from sdv.single_table import CTGANSynthesizer

@@ -3,28 +3,13 @@ import logging
 
 import boto3
 import googlemaps
-from sqlalchemy import create_engine
 
-from common import execute_query, execute_update_query
+from common import execute_query, execute_update_query, upload_to_table
 
 _max_price = 10000
 _max_surface = 700
 
 logging.basicConfig(level=logging.INFO)
-
-
-def upload_to_table(df, table_name):
-    ssm = boto3.client("ssm", region_name="eu-west-1")
-    db_pass = ssm.get_parameter(Name="POSTGRESQL_PASS", WithDecryption=True)
-    db_pass = db_pass["Parameter"]["Value"]
-
-    engine = create_engine(f"postgresql://postgres:{db_pass}@localhost:5432/Housing")
-
-    logging.info(f"Uploading {df.shape[0]} elements to {table_name}")
-    df["timestamp"] = str(datetime.datetime.now(datetime.timezone.utc))
-    df.to_sql(name=table_name, con=engine, index=False, if_exists="append")
-
-    return df
 
 
 def extract_scrapper_data():

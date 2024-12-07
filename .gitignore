@@ -16,3 +16,12 @@ Spotify Analysis/Analysis/Regression-Clean-Extra.ipynb
 Spotify Analysis/Analysis/layer
 Spotify Analysis/Analysis/.cache
 *.twbr
+/Housing Analysis/.ipynb_checkpoints
+*.lock
+/Housing Analysis/ETL/downloaded_files/
+test.py
+Housing Analysis/metadata_ctgan.json
+Housing Analysis/Analysis/metadata_ctgan.json
+*.gpkg
+/Housing Analysis/Analysis/.ipynb_checkpoints
+*.geojson

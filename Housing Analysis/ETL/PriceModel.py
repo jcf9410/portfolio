@@ -1,5 +1,6 @@
 import os
 import pickle
+import logging
 
 import geopandas as gpd
 import miceforest as mf
@@ -12,8 +13,11 @@ from sklearn.inspection import permutation_importance
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, FunctionTransformer
+from skopt import BayesSearchCV
 
 from common import execute_query, upload_to_table
+
+logging.basicConfig(level=logging.INFO)
 
 _random_state = 112024
 _cat_cols = ["city", "type", "orientation", "age", "parking", "floor",
@@ -79,6 +83,7 @@ class ColumnSelector(BaseEstimator, TransformerMixin):
 
 
 def load_data():
+    logging.info("Loading data...")
     q = "SELECT * FROM houses_clean"
     df = execute_query(q)
 
@@ -86,6 +91,7 @@ def load_data():
 
 
 def add_extra_data(df):
+    logging.info("Adding extra data...")
     loudness_df = gpd.read_file("Files/2017_isofones_total_lden_mapa_estrategic_soroll_bcn.gpkg",
                                 layer="2017_Isofones_Total_Lden_Mapa_Estrategic_Soroll_BCN")
     loudness_df = loudness_df.to_crs(epsg=4326)
@@ -104,6 +110,7 @@ def add_extra_data(df):
 
 
 def preprocess(df):
+    logging.info("Preprocessing...")
     df = add_extra_data(df)
 
     for c in _cat_cols:
@@ -130,6 +137,7 @@ def preprocess(df):
 
 
 def impute_data(df):
+    logging.info("Imputing missing data...")
     df_mice = df.copy().reset_index(drop=True)
 
     kds = mf.ImputationKernel(df_mice, random_state=_random_state)
@@ -146,25 +154,16 @@ def transform_categories(X, cat_cols):
             _df = X[[c]].copy()
             _df["count"] = 1
             _df = _df.groupby(c, observed=True).count().reset_index()[[c, "count"]]
-            _df["count"] = 100 * _df["count"] / _df["count"].sum()
-            infrequent_cats = _df.loc[_df["count"] < 1, c].unique()
+            _df["count"] = _df["count"] / _df["count"].sum()
+            infrequent_cats = _df.loc[_df["count"] < 0.01, c].unique()
             X[c] = X[c].astype(object).replace(infrequent_cats, "Other")
 
     return X
 
 
-def train_model(df, cat_cols=None, include_ci=None):
+def get_pipeline_preprocessor(cat_cols=None):
     if cat_cols is None:
         cat_cols = _cat_cols
-    X = df[cat_cols + _transform_columns]
-    for c in cat_cols:
-        X[f"is_null_{c}"] = X.loc[:, c].eq("Null")
-    y = df["price"].values
-
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=_random_state)
-
-    col_selector = ColumnSelector(
-        remove_columns=_remove_cols)
 
     cats_transformer = FunctionTransformer(transform_categories, kw_args={"cat_cols": cat_cols})
     std_scaler = StandardScaler()
@@ -177,12 +176,32 @@ def train_model(df, cat_cols=None, include_ci=None):
         ("num_transforms", Pipeline([
             ("log_transform", log_transform_transformer),
             ("std_scaler", std_scaler)
-        ]), _transform_columns),
-        # ("bool_parser", bool_to_int_transformer, bool_cols)
+        ]), _transform_columns)
     ]
-    preprocessor_no_onehot = ColumnTransformer(transformers=transforms_no_onehot, remainder="drop")
+    preprocessor = ColumnTransformer(transformers=transforms_no_onehot, remainder="drop")
 
-    best_model = HistGradientBoostingRegressor(random_state=_random_state, categorical_features="from_dtype")
+    return preprocessor
+
+
+def train_model(df, cat_cols=None, tune_model=False, include_ci=None):
+    logging.info("Training model...")
+
+    if cat_cols is None:
+        cat_cols = _cat_cols
+    X = df[cat_cols + _transform_columns]
+    y = df["price"].values
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=_random_state)
+
+    col_selector = ColumnSelector(remove_columns=_remove_cols)
+    preprocessor_no_onehot = get_pipeline_preprocessor(cat_cols=cat_cols)
+
+    if tune_model:
+        params = tune_model_bayes(df, cat_cols=cat_cols)
+        best_model = HistGradientBoostingRegressor(random_state=_random_state, categorical_features="from_dtype",
+                                                   **params)
+    else:
+        best_model = HistGradientBoostingRegressor(random_state=_random_state, categorical_features="from_dtype")
     output_model = OutputTransformer(model=best_model, columns=cat_cols + _transform_columns,
                                      cat_columns=cat_cols,
                                      output_transform=np.exp, target_transform=np.log)
@@ -224,10 +243,55 @@ def train_model(df, cat_cols=None, include_ci=None):
     return pipe_full, pipe_gb_lower, pipe_gb_upper
 
 
+def tune_model_bayes(df, cat_cols=None):
+    logging.info("Tuning model...")
+    if cat_cols is None:
+        cat_cols = _cat_cols
+
+    params = {
+        'learning_rate': np.logspace(-4, 0, 8),
+        'max_leaf_nodes': np.concatenate([np.arange(10, 100, 5, dtype=np.int16), [None]]),
+        "min_samples_leaf": np.linspace(20, 100, 9, dtype=np.int16),
+        "max_iter": np.arange(50, 1050, 50),
+        "l2_regularization": np.logspace(-4, 0, 20),
+        "max_features": np.arange(0.5, 1, 0.05),
+        "max_depth": np.concatenate([np.linspace(1, 50, 50, dtype=np.int16), [None]]),
+    }
+
+    X = df[cat_cols + _transform_columns]
+    y = df["price"].values
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=_random_state)
+
+    col_selector = ColumnSelector(remove_columns=_remove_cols)
+    preprocessor_no_onehot = get_pipeline_preprocessor(cat_cols=cat_cols)
+
+    pipe_full_bayes = Pipeline(steps=[
+        ("selector", col_selector),
+        ('preprocessor', preprocessor_no_onehot)
+    ])
+    X_train_scaled_hyper = pipe_full_bayes.fit_transform(X_train)
+    X_train_scaled_hyper = pd.DataFrame(X_train_scaled_hyper, columns=cat_cols + _transform_columns)
+
+    for c in cat_cols:
+        if c in X_train_scaled_hyper.columns:
+            X_train_scaled_hyper[c] = pd.Categorical(X_train_scaled_hyper[c])
+
+    y_train_hyper = np.log(y_train)
+
+    output_model_opt = HistGradientBoostingRegressor(random_state=_random_state, early_stopping=True,
+                                                     categorical_features="from_dtype")
+    bayes_search_model = BayesSearchCV(estimator=output_model_opt, search_spaces=params,
+                                       random_state=_random_state)
+    bayes_search_model.fit(X_train_scaled_hyper, y_train_hyper)
+
+    return bayes_search_model.best_params_
+
+
 def select_important_columns(trained_model, df):
+    logging.info("Selecting important columns...")
+
     X = df[_cat_cols + _num_cols]
-    for c in _cat_cols:
-        X[f"is_null_{c}"] = X[c].eq("Null")
     y = df["price"].values
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=_random_state)
 
@@ -257,7 +321,7 @@ def create_and_train_model():
     relevant_cat_cols = [c for c in relevant_cols if c in _cat_cols]
 
     trained_model, model_lower_bound, model_upper_bound = train_model(df_subset, cat_cols=relevant_cat_cols,
-                                                                      include_ci=True)
+                                                                      tune_model=True, include_ci=True)
 
     with open("price_model_full.pkl", "wb") as f:
         pickle.dump(trained_model, f)
@@ -268,6 +332,8 @@ def create_and_train_model():
 
 
 def predict_and_load():
+    logging.info("Predicting values and storing in DB...")
+
     with open("price_model_full.pkl", "rb") as f:
         model = pickle.load(f)
     with open("price_model_lower_bound.pkl", "rb") as f:

@@ -25,3 +25,8 @@ Housing Analysis/Analysis/metadata_ctgan.json
 *.gpkg
 /Housing Analysis/Analysis/.ipynb_checkpoints
 *.geojson
+/Misc/ableton_listener
+/Misc/double_click
+Misc/log.txt
+*.png
+/.idea

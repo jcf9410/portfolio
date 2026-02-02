@@ -36,8 +36,8 @@ DEVICE_MAP = {
     ':1.0:15:BC Flanger 3 VST(Mono)': ("panel2", "led4"),  # BC Flanger
     ':1.0:12:Flying-AutoWahwah': ("panel2", "led5"),  # Flying-AutoWahwah
     ':1.0:2:RC-20 Retro Color': ("panel2", "led6"),  # RC-20 Retro Color
-    ':1.0:3:Efektor Harmonitron': ("panel2", "led7"),  # Efektor Harmonitron - slight
-    ':1.0:4:Efektor Harmonitron': ("panel2", "led8"),  # Efektor Harmonitron - high
+    ':1.0:3:Efektor Harmonitron': ("panel2", "led8"),  # Efektor Harmonitron - slight
+    ':1.0:4:Efektor Harmonitron': ("panel2", "led7"),  # Efektor Harmonitron - high
     ':0.0:1:Efektor Whammo': ("panel2", "led10"),  # Efektor Whammo
 }
 

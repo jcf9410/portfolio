@@ -12,7 +12,7 @@ def send_space(window_title):
 # time.sleep(2)
 
 t1 = threading.Thread(target=send_space, args=(".*Songsterr Tabs with Rhythm .*",))
-t2 = threading.Thread(target=send_space, args=("Spotify Premium",))
+t2 = threading.Thread(target=send_space, args=("TIDAL",))
 
 t1.start()
 t2.start()

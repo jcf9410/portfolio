@@ -122,7 +122,7 @@ def analyze_device_structure(devices):
                 print(f"  - {device['id']} (Track: {device['track']}, On: {device['is_on']})")
 
 
-with open('log.txt', 'r', encoding='utf-8') as f:
+with open('Log.txt', 'r', encoding='utf-8') as f:
     log_content = f.read()
 
 devices = parse_ableton_log(log_content)

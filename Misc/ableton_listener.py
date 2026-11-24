@@ -9,6 +9,7 @@ from PIL import Image, ImageTk
 IMAGE_FILES = {
     "panel1": r"C:\Users\jcf\Desktop\codigo\Portfolio\Misc\bank_1_named.png",
     "panel2": r"C:\Users\jcf\Desktop\codigo\Portfolio\Misc\bank_2_named.png",
+    "panel0": r"C:\Users\jcf\Desktop\codigo\Portfolio\Misc\bank_3_named.png",
     # "panel3": "bank_3.png",
 }
 
@@ -21,12 +22,18 @@ for i in range(0, 5):
 LED_RADIUS = 10
 
 DEVICE_MAP = {
+    "Clean:0.0:2.0:[chain]": ("panel0", "led1"),
+    "Clean:0.0:2.1:[chain]": ("panel0", "led2"),
+    "Clean:0.0:2.2:[chain]": ("panel0", "led3"),
+    "Clean:0.0:2.3:[chain]": ("panel0", "led4"),
+    ":1:Amp": ("panel0", "led6"),
+    "ARM:Clean": ("panel0", "led5"),
     ":1.0:14:Reverb + Boost": ("panel1", "led1"),  # Reverb + Boost
     ":1.0:0:BOD_x64": ("panel1", "led2"),  # BOD_x64 - tone
     ":1.0:5:BOD_x64": ("panel1", "led3"),  # BOD_x64 - OD
     ":1.0:6:Darkglass Ultra": ("panel1", "led4"),  # Darkglass Ultra
     ':1.0:7:Parallax': ("panel1", "led5"),  # Parallax
-    ':1.0:8:Fuzzploid': ("panel1", "led6"),  # Fuzzploid
+    ':1.0:8:Fuzzploid': ("panel1", "led6"),  # Fvuzzploid
     ':1.0:9:Krush': ("panel1", "led7"),  # Krush
     ':1.0:10:Dist + Oct + Synth': ("panel1", "led8"),  # Dist + Oct + Synth
     ':1.0:11:Efektor WF3607': ("panel1", "led10"),  # Efektor WF3607 - Wah
@@ -55,6 +62,28 @@ def flatten_tracks(tracks):
     return flat
 
 
+# def flatten_devices(devices, track_name=""):
+#     flat = []
+#     for device_idx, device in enumerate(devices):
+#         if not isinstance(device, dict):
+#             continue
+#         if "name" in device and "is_on" in device:
+#             device_id = f"{track_name}:{device_idx}:{device['name']}"
+#             flat.append({
+#                 "id": device_id,
+#                 "name": device["name"],
+#                 "is_on": device["is_on"],
+#                 "track": track_name,
+#                 "index": device_idx
+#             })
+#         if device.get("is_rack") and isinstance(device.get("chains"), list):
+#             for chain_idx, chain in enumerate(device["chains"]):
+#                 chain_devices = chain.get("devices", [])
+#                 # Recursively process with parent device index
+#                 rack_path = f"{track_name}:{device_idx}.{chain_idx}"
+#                 flat.extend(flatten_devices(chain_devices, rack_path))
+#     return flat
+
 def flatten_devices(devices, track_name=""):
     flat = []
     for device_idx, device in enumerate(devices):
@@ -71,12 +100,18 @@ def flatten_devices(devices, track_name=""):
             })
         if device.get("is_rack") and isinstance(device.get("chains"), list):
             for chain_idx, chain in enumerate(device["chains"]):
-                chain_devices = chain.get("devices", [])
-                # Recursively process with parent device index
+                # Emit the chain's own status — using the id from the monitor directly
+                if "status" in chain:
+                    cs = chain["status"]
+                    flat.append({
+                        "id": cs["id"],
+                        "name": cs["name"],
+                        "is_on": cs["is_on"],
+                    })
+                # Recurse into devices inside the chain (existing logic unchanged)
                 rack_path = f"{track_name}:{device_idx}.{chain_idx}"
-                flat.extend(flatten_devices(chain_devices, rack_path))
+                flat.extend(flatten_devices(chain.get("devices", []), rack_path))
     return flat
-
 
 class DashboardPanel:
     def __init__(self, parent, panel_id, image_path):
@@ -176,6 +211,11 @@ class MultiPanelDashboard:
             if device_id in DEVICE_MAP:
                 status = "ON" if is_on else "OFF"
                 self.update_device(device_id, status)
+        for track in data:
+            arm_id = f"ARM:{track['track_name']}"
+            if arm_id in DEVICE_MAP:
+                status = "ON" if track.get("armed") else "OFF"
+                self.update_device(arm_id, status)
 
 
 async def ws_handler(websocket, path, dashboard):

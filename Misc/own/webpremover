@@ -1,0 +1,281 @@
+#!/usr/bin/env python3
+"""
+WebP File Remover - Standalone Version
+Deletes all .webp files from a specified folder.
+
+CONFIGURATION:
+Edit the settings below to customize behavior.
+"""
+
+import os
+import sys
+from pathlib import Path
+from typing import List
+
+# ============================================================
+# CONFIGURATION - EDIT THESE SETTINGS
+# ============================================================
+
+# Directory to scan for .webp files (use raw string for Windows paths)
+TARGET_DIRECTORY = r"C:\Users\jcf\Desktop\backup_movil_05072025"  # CHANGE THIS!
+
+# Delete files in subdirectories as well?
+RECURSIVE = True
+
+# Ask for confirmation before deleting each file?
+CONFIRM_EACH_FILE = False
+
+# Ask for confirmation before deleting all files at once?
+CONFIRM_BEFORE_DELETE = True
+
+# Move to recycle bin instead of permanent deletion? (Windows only, requires send2trash)
+USE_RECYCLE_BIN = False
+
+# Show detailed progress?
+VERBOSE = True
+
+# Dry run mode (show what would be deleted without actually deleting)?
+DRY_RUN = False
+
+# ============================================================
+# DO NOT EDIT BELOW THIS LINE
+# ============================================================
+
+# Try to import send2trash for recycle bin functionality
+try:
+    from send2trash import send2trash
+    SEND2TRASH_AVAILABLE = True
+except ImportError:
+    SEND2TRASH_AVAILABLE = False
+    if USE_RECYCLE_BIN:
+        print("Warning: send2trash not installed. Will use permanent deletion.")
+        print("Install with: pip install send2trash")
+        USE_RECYCLE_BIN = False
+
+
+class WebPRemover:
+    """Remove .webp files from a directory."""
+
+    def __init__(self, directory: str, recursive: bool = True, verbose: bool = True):
+        """Initialize the remover."""
+        self.directory = directory
+        self.recursive = recursive
+        self.verbose = verbose
+        self.deleted_count = 0
+        self.failed_count = 0
+        self.skipped_count = 0
+
+    def find_webp_files(self) -> List[str]:
+        """Find all .webp files in the directory."""
+        webp_files = []
+        directory_path = Path(self.directory)
+
+        if not directory_path.exists():
+            print(f"ERROR: Directory '{self.directory}' does not exist")
+            return []
+
+        if self.verbose:
+            print(f"Searching for .webp files in: {self.directory}")
+            if self.recursive:
+                print("(including subdirectories)")
+
+        pattern = '**/*.webp' if self.recursive else '*.webp'
+
+        # Case-insensitive search for both .webp and .WEBP
+        for path in directory_path.glob(pattern):
+            webp_files.append(str(path))
+
+        # Also check for uppercase extension
+        pattern_upper = '**/*.WEBP' if self.recursive else '*.WEBP'
+        for path in directory_path.glob(pattern_upper):
+            if str(path) not in webp_files:
+                webp_files.append(str(path))
+
+        return webp_files
+
+    def format_size(self, size_bytes: int) -> str:
+        """Format file size in human-readable format."""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.2f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.2f} TB"
+
+    def delete_file(self, filepath: str, use_recycle: bool = False) -> bool:
+        """Delete a single file."""
+        try:
+            if use_recycle and SEND2TRASH_AVAILABLE:
+                send2trash(filepath)
+            else:
+                os.remove(filepath)
+            return True
+        except Exception as e:
+            if self.verbose:
+                print(f"  ✗ Failed to delete: {os.path.basename(filepath)}")
+                print(f"    Error: {e}")
+            return False
+
+    def remove_files(self, files: List[str], confirm_each: bool = False,
+                    confirm_before: bool = True, use_recycle: bool = False,
+                    dry_run: bool = False) -> None:
+        """Remove the found .webp files."""
+        if not files:
+            print("\n✓ No .webp files found!")
+            return
+
+        # Calculate total size
+        total_size = 0
+        for filepath in files:
+            try:
+                total_size += os.path.getsize(filepath)
+            except:
+                pass
+
+        print(f"\nFound {len(files)} .webp file(s)")
+        print(f"Total size: {self.format_size(total_size)}")
+
+        if dry_run:
+            print("\n" + "=" * 70)
+            print("DRY RUN MODE - No files will be deleted")
+            print("=" * 70)
+
+        # Show files to be deleted
+        if self.verbose or dry_run:
+            print("\nFiles to be deleted:")
+            for i, filepath in enumerate(files, 1):
+                try:
+                    size = os.path.getsize(filepath)
+                    print(f"  {i}. {filepath} ({self.format_size(size)})")
+                except:
+                    print(f"  {i}. {filepath}")
+
+        # Confirm before deleting all
+        if confirm_before and not dry_run:
+            print("\n" + "=" * 70)
+            if use_recycle:
+                print(f"Ready to move {len(files)} file(s) to Recycle Bin")
+            else:
+                print(f"WARNING: Ready to PERMANENTLY delete {len(files)} file(s)")
+            print("=" * 70)
+            response = input("\nContinue? (yes/no): ").lower().strip()
+            if response not in ['yes', 'y']:
+                print("\nCancelled by user.")
+                return
+
+        if dry_run:
+            print(f"\n[DRY RUN] Would delete {len(files)} file(s)")
+            return
+
+        # Delete files
+        print("\n" + "=" * 70)
+        print("Deleting files...")
+        print("=" * 70 + "\n")
+
+        for i, filepath in enumerate(files, 1):
+            filename = os.path.basename(filepath)
+
+            # Confirm each file if requested
+            if confirm_each:
+                response = input(f"Delete {filename}? (y/n/q): ").lower().strip()
+                if response == 'q':
+                    print("\nStopped by user.")
+                    break
+                if response != 'y':
+                    self.skipped_count += 1
+                    if self.verbose:
+                        print(f"  ⊘ Skipped: {filename}")
+                    continue
+
+            # Delete the file
+            if self.delete_file(filepath, use_recycle):
+                self.deleted_count += 1
+                if self.verbose:
+                    action = "Moved to Recycle Bin" if use_recycle else "Deleted"
+                    print(f"  ✓ {action}: {filename} ({i}/{len(files)})")
+            else:
+                self.failed_count += 1
+
+        # Summary
+        print("\n" + "=" * 70)
+        print("SUMMARY")
+        print("=" * 70)
+        print(f"✓ Successfully deleted: {self.deleted_count}")
+        if self.failed_count > 0:
+            print(f"✗ Failed: {self.failed_count}")
+        if self.skipped_count > 0:
+            print(f"⊘ Skipped: {self.skipped_count}")
+        print("=" * 70)
+
+
+def main():
+    """Main execution function."""
+    print("\n" + "=" * 70)
+    print("WebP File Remover")
+    print("=" * 70)
+    print()
+
+    # Validate configuration
+    if TARGET_DIRECTORY == r"C:\Users\YourUsername\Pictures":
+        print("⚠ WARNING: Using default target directory!")
+        print("Please edit the TARGET_DIRECTORY setting in the script.\n")
+        response = input("Continue anyway? (y/n): ").lower().strip()
+        if response != 'y':
+            print("\nExiting...")
+            return
+
+    if not os.path.exists(TARGET_DIRECTORY):
+        print(f"\n❌ ERROR: Directory does not exist:")
+        print(f"   {TARGET_DIRECTORY}")
+        print("\nPlease edit TARGET_DIRECTORY in the script.")
+        input("\nPress Enter to exit...")
+        return
+
+    # Display configuration
+    print("Configuration:")
+    print(f"  Target Directory: {TARGET_DIRECTORY}")
+    print(f"  Recursive: {RECURSIVE}")
+    print(f"  Use Recycle Bin: {USE_RECYCLE_BIN}")
+    print(f"  Confirm Before Delete: {CONFIRM_BEFORE_DELETE}")
+    print(f"  Confirm Each File: {CONFIRM_EACH_FILE}")
+    print(f"  Dry Run: {DRY_RUN}")
+    print()
+
+    if DRY_RUN:
+        print("⚠ DRY RUN MODE: No files will actually be deleted")
+        print()
+
+    # Initialize remover
+    remover = WebPRemover(TARGET_DIRECTORY, RECURSIVE, VERBOSE)
+
+    # Find .webp files
+    webp_files = remover.find_webp_files()
+
+    if not webp_files:
+        print("\n✓ No .webp files found!")
+        input("\nPress Enter to exit...")
+        return
+
+    # Remove files
+    remover.remove_files(
+        webp_files,
+        confirm_each=CONFIRM_EACH_FILE,
+        confirm_before=CONFIRM_BEFORE_DELETE,
+        use_recycle=USE_RECYCLE_BIN,
+        dry_run=DRY_RUN
+    )
+
+    print("\nOperation complete!")
+    input("\nPress Enter to exit...")
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\nOperation cancelled by user.")
+        input("\nPress Enter to exit...")
+    except Exception as e:
+        print(f"\n\n❌ Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
+        input("\nPress Enter to exit...")
